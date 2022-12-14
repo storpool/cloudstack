@@ -119,28 +119,30 @@ public class StorPoolHostListener implements HypervisorHostListener {
 
         StoragePoolHostVO poolHost = storagePoolHostDao.findByPoolHost(pool.getId(), hostId);
 
+        boolean isPoolConnectedToTheHost = poolHost != null;
+
         if (answer == null) {
+            StorPoolUtil.spLog("Storage pool [%s] is not connected to the host [%s]", poolVO.getName(), host.getName());
+            deleteVolumeWhenHostCannotConnectPool(conn, volumeOnPool);
+
+            removePoolOnHost(poolHost, isPoolConnectedToTheHost);
             throw new CloudRuntimeException("Unable to get an answer to the modify storage pool command" + pool.getId());
         }
 
         if (!answer.getResult()) {
-            if (answer.getDetails() != null) {
-                if (answer.getDetails().equals("objectDoesNotExist")) {
-                    StorPoolUtil.volumeDelete(StorPoolStorageAdaptor.getVolumeNameFromPath(volumeOnPool.getValue(), true), conn);
-                    storagePoolDetailsDao.remove(volumeOnPool.getId());
-                    return false;
-                } else if (answer.getDetails().equals("spNotFound")) {
-                    return false;
-                }
+            StorPoolUtil.spLog("Storage pool [%s] is not connected to the host [%s]", poolVO.getName(), host.getName());
 
+            removePoolOnHost(poolHost, isPoolConnectedToTheHost);
+            deleteVolumeWhenHostCannotConnectPool(conn, volumeOnPool);
+
+            if (answer.getDetails() != null && (answer.getDetails().equals("objectDoesNotExist") || answer.getDetails().equals("spNotFound"))) {
+                return false;
             }
             String msg = "Unable to attach storage pool" + poolId + " to the host" + hostId;
             alertMgr.sendAlert(AlertManager.AlertType.ALERT_TYPE_HOST, pool.getDataCenterId(), pool.getPodId(), msg, msg);
             throw new CloudRuntimeException("Unable establish connection from storage head to storage pool " + pool.getId() + " due to " + answer.getDetails() +
                 pool.getId());
         }
-
-        StorPoolUtil.spLog("hostConnect: hostId=%d, poolId=%d", hostId, poolId);
 
         StorPoolModifyStoragePoolAnswer mspAnswer = (StorPoolModifyStoragePoolAnswer)answer;
         if (mspAnswer.getLocalDatastoreName() != null && pool.isShared()) {
@@ -164,7 +166,7 @@ public class StorPoolHostListener implements HypervisorHostListener {
 
         StorPoolHelper.setSpClusterIdIfNeeded(hostId, mspAnswer.getClusterId(), clusterDao, hostDao, clusterDetailsDao);
 
-        log.info("Connection established between storage pool " + pool + " and host " + hostId);
+        StorPoolUtil.spLog("Connection established between storage pool [%s] and host [%s]", poolVO.getName(), host.getName());
         return true;
     }
 
@@ -230,5 +232,16 @@ public class StorPoolHostListener implements HypervisorHostListener {
     @Override
     public boolean hostEnabled(long hostId) {
         return true;
+    }
+
+    private void deleteVolumeWhenHostCannotConnectPool(SpConnectionDesc conn, StoragePoolDetailVO volumeOnPool) {
+        StorPoolUtil.volumeDelete(StorPoolStorageAdaptor.getVolumeNameFromPath(volumeOnPool.getValue(), true), conn);
+        storagePoolDetailsDao.remove(volumeOnPool.getId());
+    }
+
+    private void removePoolOnHost(StoragePoolHostVO poolHost, boolean isPoolConnectedToTheHost) {
+        if (isPoolConnectedToTheHost) {
+            storagePoolHostDao.remove(poolHost.getId());
+        }
     }
 }

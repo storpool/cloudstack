@@ -71,6 +71,25 @@ public class StorPoolUtil {
     private static final File spLogFile = new File("/var/log/cloudstack/management/storpool-plugin.log");
     private static PrintWriter spLogPrinterWriter = spLogFileInitialize();
 
+    private static JsonObject gitPropertiesJson = readGitPropertiesJson();
+
+    private static JsonObject readGitPropertiesJson() {
+        try {
+            final ClassLoader classLoader = StorPoolUtil.class.getClassLoader();
+            final BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(classLoader.getResourceAsStream("git.properties")));
+            final JsonElement jsonElement = new JsonParser().parse(bufferedReader);
+            final JsonObject obj = jsonElement.getAsJsonObject();
+            final String gitCommitIdDescribeShort = obj.getAsJsonPrimitive("git.commit.id.describe-short").getAsString();
+            final String gitBuildTime = obj.getAsJsonPrimitive("git.build.time").getAsString();
+            final String gitBuildVersion = obj.getAsJsonPrimitive("git.build.version").getAsString();
+            log.info("StorPool-Cloudstack-Integration version: " + gitBuildVersion + ", build timestamp: " + gitBuildTime + ", git describe: " + gitCommitIdDescribeShort);
+            return obj;
+        } catch (Exception e) {
+            log.warn("readGitPropertiesJson: "+e.getMessage());
+            throw new RuntimeException(e);
+        }
+    }
+
     private static PrintWriter spLogFileInitialize() {
         try {
             log.info("INITIALIZE SP-LOG_FILE");

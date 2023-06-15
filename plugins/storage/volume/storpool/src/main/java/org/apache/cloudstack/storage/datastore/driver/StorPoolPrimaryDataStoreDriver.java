@@ -304,10 +304,13 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
             try {
                 SpConnectionDesc conn = StorPoolUtil.getSpConnection(data.getDataStore().getUuid(), data.getDataStore().getId(), storagePoolDetailsDao, primaryStoreDao);
 
-                long maxIops = payload.newMaxIops == null ? Long.valueOf(0) : payload.newMaxIops;
+                Long maxIops = payload.newMaxIops == null ? Long.valueOf(0) : payload.newMaxIops;
 
                 StorPoolUtil.spLog("StorpoolPrimaryDataStoreDriverImpl.resize: name=%s, uuid=%s, oldSize=%d, newSize=%s, shrinkOk=%s, maxIops=%s", name, vol.getUuid(), oldSize, payload.newSize, payload.shrinkOk, maxIops);
 
+                if (oldMaxIops == payload.newMaxIops) {
+                    maxIops = null;
+                }
                 SpApiResponse resp = StorPoolUtil.volumeUpdate(name, payload.newSize, payload.shrinkOk, maxIops, conn);
                 if (resp.getError() != null) {
                     err = String.format("Could not resize StorPool volume %s. Error: %s", name, resp.getError());

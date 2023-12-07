@@ -38,4 +38,7 @@
 
     <bean id="statistics"
         class="org.apache.cloudstack.storage.datastore.driver.StorPoolStatsCollector" />
+
+	<bean id="storPoolReplaceCommandsHelper" primary="false"
+		class="org.apache.cloudstack.storage.helper.StorPoolReplaceCommandsHelper" init-method="init"/>
 </beans>

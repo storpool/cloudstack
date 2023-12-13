@@ -522,7 +522,7 @@ class VirtualMachine:
                method='GET', hypervisor=None, customcpunumber=None,
                customcpuspeed=None, custommemory=None, rootdisksize=None,
                rootdiskcontroller=None, vpcid=None, macaddress=None, datadisktemplate_diskoffering_list={},
-               properties=None, nicnetworklist=None, bootmode=None, boottype=None, dynamicscalingenabled=None):
+               properties=None, nicnetworklist=None, bootmode=None, boottype=None, dynamicscalingenabled=None, overridediskofferingid=None):
         """Create the instance"""
 
         cmd = deployVirtualMachine.deployVirtualMachineCmd()
@@ -608,6 +608,9 @@ class VirtualMachine:
 
         if hostid:
             cmd.hostid = hostid
+
+        if overridediskofferingid:
+            cmd.overridediskofferingid = overridediskofferingid
 
         if "userdata" in services:
             cmd.userdata = base64.urlsafe_b64encode(services["userdata"].encode()).decode()

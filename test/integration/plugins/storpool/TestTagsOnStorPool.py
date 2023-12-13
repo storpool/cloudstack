@@ -77,7 +77,13 @@ class TestStoragePool(cloudstackTestCase):
 
     @classmethod
     def setUpCloudStack(cls):
-        cls.spapi = spapi.Api(host="10.2.23.248", port="81", auth="6549874687", multiCluster=True)
+        config = cls.getClsConfig()
+        StorPoolHelper.logger = cls
+
+        zone = config.zones[0]
+        assert zone is not None
+
+        cls.spapi = spapi.Api(host=zone.spEndpoint, port=zone.spEndpointPort, auth=zone.spAuthToken, multiCluster=True)
         testClient = super(TestStoragePool, cls).getClsTestClient()
         cls.apiclient = testClient.getApiClient()
         cls.unsupportedHypervisor = False

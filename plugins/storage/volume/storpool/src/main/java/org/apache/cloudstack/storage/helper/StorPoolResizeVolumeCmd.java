@@ -95,7 +95,7 @@ public class StorPoolResizeVolumeCmd extends BaseAsyncCmd {
         replaceCommands.ensureCmdHasRequiredValues(this.resizeVolume, this);
         this.resizeVolume.execute();
         if (StorPoolReplaceCommandsUtil.isStorPoolStorage(primaryStorageDao, volumeDao, id) && newDiskOfferingId != null) {
-            replaceCommands.updateVolumeTemplate(id, newDiskOfferingId);
+            replaceCommands.updateTierTagOrTemplate(id, newDiskOfferingId);
         }
         this.setResponseObject(this.resizeVolume.getResponseObject());
     }

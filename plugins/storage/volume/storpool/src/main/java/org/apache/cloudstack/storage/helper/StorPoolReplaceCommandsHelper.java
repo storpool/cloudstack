@@ -21,6 +21,7 @@ import org.apache.cloudstack.api.BaseAsyncCreateCmd;
 import org.apache.cloudstack.api.command.admin.vm.ScaleVMCmdByAdmin;
 import org.apache.cloudstack.api.command.admin.volume.ResizeVolumeCmdByAdmin;
 import org.apache.cloudstack.api.command.user.vm.ScaleVMCmd;
+import org.apache.cloudstack.api.command.user.volume.ChangeOfferingForVolumeCmd;
 import org.apache.cloudstack.api.command.user.volume.ResizeVolumeCmd;
 import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStore;
@@ -111,7 +112,8 @@ public class StorPoolReplaceCommandsHelper implements PluggableService {
                 Arrays.asList(ResizeVolumeCmd.class.getAnnotation(APICommand.class),
                         ResizeVolumeCmdByAdmin.class.getAnnotation(APICommand.class),
                         ScaleVMCmd.class.getAnnotation(APICommand.class),
-                        ScaleVMCmdByAdmin.class.getAnnotation(APICommand.class)));
+                        ScaleVMCmdByAdmin.class.getAnnotation(APICommand.class),
+                        ChangeOfferingForVolumeCmd.class.getAnnotation(APICommand.class)));
         changeAnnotationValue(annotations, "name", "");
     }
 
@@ -143,7 +145,7 @@ public class StorPoolReplaceCommandsHelper implements PluggableService {
     @Override
     public List<Class<?>> getCommands() {
         return new ArrayList<>(Arrays.asList(StorPoolResizeVolumeCmd.class, StorPoolResizeVolumeCmdByAdmin.class,
-                StorPoolScaleVMCmd.class, StorPoolScaleVMCmdByAdmin.class));
+                StorPoolScaleVMCmd.class, StorPoolScaleVMCmdByAdmin.class, StorPoolChangeOfferingForVolumeCmd.class));
     }
 
     public static class StorPoolReplaceCommandsUtil {
@@ -246,37 +248,52 @@ public class StorPoolReplaceCommandsHelper implements PluggableService {
             return false;
         }
 
-        public void updateVolumeTemplate(long volumeId, long diskOfferingId) {
+        public void updateTierTagOrTemplate(long volumeId, long diskOfferingId) {
             VolumeInfo volumeObjectTO = volumeDataFactory.getVolume(volumeId);
 
+            String tier = null;
             String template = null;
             DiskOfferingDetailVO diskOfferingDetail = diskOfferingDetailsDao.findDetail(diskOfferingId,
-                    StorPoolUtil.SP_TEMPLATE);
+                    StorPoolUtil.SP_TIER);
             if (diskOfferingDetail == null) {
-                ServiceOfferingDetailsVO serviceOfferingDetail = serviceOfferingDetailsDao.findDetail(diskOfferingId,
+                StorPoolUtil.spLog("Could not find tier for the storage with disk offering id [%s]. Trying with the SP_TEMPLATE", diskOfferingId);
+                diskOfferingDetail = diskOfferingDetailsDao.findDetail(diskOfferingId,
                         StorPoolUtil.SP_TEMPLATE);
-                if (serviceOfferingDetail == null) {
-                    return;
+                if (diskOfferingDetail == null) {
+                    ServiceOfferingDetailsVO serviceOfferingDetail = serviceOfferingDetailsDao.findDetail(diskOfferingId,
+                            StorPoolUtil.SP_TEMPLATE);
+                    if (serviceOfferingDetail == null) {
+                        return;
+                    }
+                    template = serviceOfferingDetail.getValue();
+                } else {
+                    template = diskOfferingDetail.getValue();
                 }
-                template = serviceOfferingDetail.getValue();
             } else {
-                template = diskOfferingDetail.getValue();
+                tier = diskOfferingDetail.getValue();
             }
             DataStore store = dataStore.getPrimaryDataStore(volumeObjectTO.getDataStore().getUuid());
+            if (tier != null || template != null) {
+                updateTierTagOrTemplate(diskOfferingId, volumeObjectTO, tier, template, store);
+            }
+        }
+
+        private void updateTierTagOrTemplate(long diskOfferingId, VolumeInfo volumeObjectTO, String tier, String template,
+                DataStore store) {
             try {
                 SpConnectionDesc conn = StorPoolUtil.getSpConnection(store.getUuid(), store.getId(),
                         storagePoolDetailsDao, storagePool);
                 String name = StorPoolStorageAdaptor.getVolumeNameFromPath(volumeObjectTO.getPath(), true);
-                SpApiResponse resp = StorPoolUtil.volumeUpadate(name, template, conn);
+                SpApiResponse resp = StorPoolUtil.volumeUpadateTierTagsOrTemplate(name, tier, template, conn);
                 if (resp.getError() != null) {
                     StorPoolUtil.spLog(
-                            "Could not update volume [%s] with the new template [%s] from the disk offering [%s]", name,
-                            template, diskOfferingId);
+                            "Could not update volume [%s] with the new QOS tag [%s] or template [%s] from the disk offering [%s]", name,
+                            tier, template, diskOfferingId);
                 }
             } catch (Exception e) {
                 StorPoolUtil.spLog(
-                        "Could not update volume [%s] with the new template [%s] from the disk offering [%s]", volumeId,
-                        template, diskOfferingId);
+                        "Could not update volume [%s] with the new QOS tag [%s] or template [%s] from the disk offering [%s]", volumeObjectTO,
+                        tier, template, diskOfferingId);
             }
         }
     }

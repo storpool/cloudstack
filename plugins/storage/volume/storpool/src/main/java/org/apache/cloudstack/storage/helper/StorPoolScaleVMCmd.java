@@ -92,7 +92,7 @@ public class StorPoolScaleVMCmd extends BaseAsyncCmd {
             for (VolumeVO volumeVO : rootVolumes) {
                 if (Volume.Type.ROOT == volumeVO.getVolumeType()) {
                     if (StorPoolReplaceCommandsUtil.isStorPoolStorage(primaryStorageDao, volumeDao, volumeVO.getId())) {
-                        replaceCommands.updateVolumeTemplate(volumeVO.getId(), serviceOfferingId);
+                        replaceCommands.updateTierTagOrTemplate(volumeVO.getId(), serviceOfferingId);
                     }
                 }
             }

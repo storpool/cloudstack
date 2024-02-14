@@ -119,7 +119,7 @@ public class StorPoolUtil {
 
     public static final String SP_VOLUME_ON_CLUSTER = "SP_VOLUME_ON_CLUSTER";
 
-    public static final String SP_TIER = "SP_TIER";
+    public static final String SP_TIER = "SP_QOSCLASS";
 
     public static enum StorpoolRights {
         RO("ro"), RW("rw"), DETACH("detach");
@@ -469,17 +469,6 @@ public class StorPoolUtil {
         return POST("MultiCluster/VolumeCreate", json, conn);
     }
 
-    public static SpApiResponse volumeCreate(Long size, String template, Map<String,String> tags, SpConnectionDesc conn) {
-        template = template != null ? template : conn.getTemplateName();
-
-        Map<String, Object> json = new LinkedHashMap<>();
-        json.put("name", "");
-        json.put("size", size);
-        json.put("template", template);
-        json.put("tags", tags);
-        return POST("MultiCluster/VolumeCreate", json, conn);
-    }
-
     public static SpApiResponse volumeCreate(SpConnectionDesc conn) {
         Map<String, Object> json = new LinkedHashMap<>();
         json.put("name", "");
@@ -487,6 +476,18 @@ public class StorPoolUtil {
         json.put("template", conn.getTemplateName());
         Map<String, String> tags = new HashMap<>();
         tags.put("cs", "check-volume-is-on-host");
+        json.put("tags", tags);
+        return POST("MultiCluster/VolumeCreate", json, conn);
+    }
+
+    public static SpApiResponse volumeCreate(Long size, String parentName, String template, Map<String,String> tags, SpConnectionDesc conn) {
+        template = template != null ? template : conn.getTemplateName();
+
+        Map<String, Object> json = new LinkedHashMap<>();
+        json.put("name", "");
+        json.put("parent", parentName);
+        json.put("size", size);
+        json.put("template", template);
         json.put("tags", tags);
         return POST("MultiCluster/VolumeCreate", json, conn);
     }
@@ -502,6 +503,15 @@ public class StorPoolUtil {
         Map<String, String> tags = StorPoolHelper.addStorPoolTags(name, cvmTag, csTag, vcPolicyTag, null);
         json.put("tags", tags);
         return POST("MultiCluster/VolumeCreate", json, conn);
+    }
+
+    public static SpApiResponse volumeUpadateTierTagsOrTemplate(String name, String qosTag, String template, SpConnectionDesc conn) {
+        Map<String, Object> json = new HashMap<>();
+        Map<String, String> tags = new HashMap<>();
+        json.put("template", template);
+        tags.put("qc", qosTag != null ? qosTag : "");
+        json.put("tags", tags);
+        return POST("MultiCluster/VolumeUpdate/" + name, json, conn);
     }
 
     public static SpApiResponse volumeUpdateRename(final String name, String newName, String uuid,
@@ -550,13 +560,6 @@ public class StorPoolUtil {
         Map<String, Object> json = new HashMap<>();
         Map<String, String> tags = StorPoolHelper.addStorPoolTags(null, uuid, null, vcPolicy, null);
         json.put("iops", iops);
-        json.put("tags", tags);
-        return POST("MultiCluster/VolumeUpdate/" + name, json, conn);
-    }
-
-    public static SpApiResponse volumeUpdateCvmTags(final String name, final String uuid, SpConnectionDesc conn) {
-        Map<String, Object> json = new HashMap<>();
-        Map<String, String> tags = StorPoolHelper.addStorPoolTags(null, uuid, null, null, null);
         json.put("tags", tags);
         return POST("MultiCluster/VolumeUpdate/" + name, json, conn);
     }

@@ -685,7 +685,7 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
                     StorPoolUtil.spLog(
                             "Creating volume [%s] with template [%s] or tier tags [%s] described in disk/service offerings details",
                             vinfo.getUuid(), template, tier);
-                    resp = StorPoolUtil.volumeCreate(size, template, tags, conn);
+                    resp = StorPoolUtil.volumeCreate(size, parentName, template, tags, conn);
                 } else {
                     resp = StorPoolUtil.volumeCreate(name, parentName, size, getVMInstanceUUID(vmId),
                             getVcPolicyTag(vmId), "volume", vinfo.getMaxIops(), conn);
@@ -1190,37 +1190,6 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
         }
     }
 
-    private SpApiResponse createStorPoolVolume(String template, String tier, VolumeInfo vinfo, String name, Long size,
-            Long vmId, SpConnectionDesc conn) {
-        SpApiResponse resp = new SpApiResponse();
-        Map<String, String> tags = StorPoolHelper.addStorPoolTags(name, getVMInstanceUUID(vmId), "volume", getVcPolicyTag(vmId), tier);
-        if (tier != null || template != null) {
-            StorPoolUtil.spLog(
-                    "Creating volume [%s] with template [%s] or tier tags [%s] described in disk/service offerings details",
-                    vinfo.getUuid(), template, tier);
-            resp = StorPoolUtil.volumeCreate(size, template, tags, conn);
-        } else {
-            StorPoolUtil.spLog(
-                    "StorpoolPrimaryDataStoreDriver.createAsync volume: name=%s, uuid=%s, isAttached=%s vm=%s, payload=%s, template: %s",
-                    vinfo.getName(), vinfo.getUuid(), vinfo.isAttachedVM(), vinfo.getAttachedVmName(),
-                    vinfo.getpayload(), conn.getTemplateName());
-            resp = StorPoolUtil.volumeCreate(name, null, size, getVMInstanceUUID(vinfo.getInstanceId()), null,
-                    "volume", vinfo.getMaxIops(), conn);
-        }
-        return resp;
-    }
-
-    private String getTierFromOfferingDetail(Long diskOfferingId) {
-        String tier = null;
-        DiskOfferingDetailVO diskOfferingDetail = diskOfferingDetailsDao.findDetail(diskOfferingId, StorPoolUtil.SP_TIER);
-        if (diskOfferingDetail == null ) {
-            return tier;
-        } else {
-            tier = diskOfferingDetail.getValue();
-        }
-        return tier;
-    }
-
     private String getTemplateFromOfferingDetail(Long diskOfferingId) {
         String template = null;
         DiskOfferingDetailVO diskOfferingDetail = diskOfferingDetailsDao.findDetail(diskOfferingId, StorPoolUtil.SP_TEMPLATE);
@@ -1236,5 +1205,36 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
             template = diskOfferingDetail.getValue();
         }
         return template;
+    }
+
+    private String getTierFromOfferingDetail(Long diskOfferingId) {
+        String tier = null;
+        DiskOfferingDetailVO diskOfferingDetail = diskOfferingDetailsDao.findDetail(diskOfferingId, StorPoolUtil.SP_TIER);
+        if (diskOfferingDetail == null ) {
+            return tier;
+        } else {
+            tier = diskOfferingDetail.getValue();
+        }
+        return tier;
+    }
+
+    private SpApiResponse createStorPoolVolume(String template, String tier, VolumeInfo vinfo, String name, Long size,
+            Long vmId, SpConnectionDesc conn) {
+        SpApiResponse resp = new SpApiResponse();
+        Map<String, String> tags = StorPoolHelper.addStorPoolTags(name, getVMInstanceUUID(vmId), "volume", getVcPolicyTag(vmId), tier);
+        if (tier != null || template != null) {
+            StorPoolUtil.spLog(
+                    "Creating volume [%s] with template [%s] or tier tags [%s] described in disk/service offerings details",
+                    vinfo.getUuid(), template, tier);
+            resp = StorPoolUtil.volumeCreate(size, null, template, tags, conn);
+        } else {
+            StorPoolUtil.spLog(
+                    "StorpoolPrimaryDataStoreDriver.createAsync volume: name=%s, uuid=%s, isAttached=%s vm=%s, payload=%s, template: %s",
+                    vinfo.getName(), vinfo.getUuid(), vinfo.isAttachedVM(), vinfo.getAttachedVmName(),
+                    vinfo.getpayload(), conn.getTemplateName());
+            resp = StorPoolUtil.volumeCreate(name, null, size, getVMInstanceUUID(vinfo.getInstanceId()), null,
+                    "volume", vinfo.getMaxIops(), conn);
+        }
+        return resp;
     }
 }

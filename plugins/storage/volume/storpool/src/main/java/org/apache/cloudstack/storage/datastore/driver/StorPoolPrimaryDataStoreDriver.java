@@ -39,6 +39,8 @@ import org.apache.cloudstack.engine.subsystem.api.storage.TemplateInfo;
 import org.apache.cloudstack.engine.subsystem.api.storage.VolumeInfo;
 import org.apache.cloudstack.framework.async.AsyncCompletionCallback;
 import org.apache.cloudstack.framework.config.dao.ConfigurationDao;
+import org.apache.cloudstack.resourcedetail.DiskOfferingDetailVO;
+import org.apache.cloudstack.resourcedetail.dao.DiskOfferingDetailsDao;
 import org.apache.cloudstack.storage.RemoteHostEndPoint;
 import org.apache.cloudstack.storage.command.CommandResult;
 import org.apache.cloudstack.storage.command.CopyCmdAnswer;
@@ -88,6 +90,10 @@ import com.cloud.host.dao.HostDao;
 import com.cloud.hypervisor.kvm.storage.StorPoolStorageAdaptor;
 import com.cloud.server.ResourceTag;
 import com.cloud.server.ResourceTag.ResourceObjectType;
+import com.cloud.service.ServiceOfferingDetailsVO;
+import com.cloud.service.ServiceOfferingVO;
+import com.cloud.service.dao.ServiceOfferingDao;
+import com.cloud.service.dao.ServiceOfferingDetailsDao;
 import com.cloud.storage.DataStoreRole;
 import com.cloud.storage.ResizeVolumePayload;
 import com.cloud.storage.Snapshot;
@@ -155,6 +161,12 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
     private StoragePoolHostDao storagePoolHostDao;
     @Inject
     DataStoreManager dataStoreManager;
+    @Inject
+    private DiskOfferingDetailsDao diskOfferingDetailsDao;
+    @Inject
+    private ServiceOfferingDetailsDao serviceOfferingDetailDao;
+    @Inject
+    private ServiceOfferingDao serviceOfferingDao;
 
     private SnapshotDataStoreVO getSnapshotImageStoreRef(long snapshotId, long zoneId) {
         List<SnapshotDataStoreVO> snaps = snapshotDataStoreDao.listReadyBySnapshot(snapshotId, DataStoreRole.Image);
@@ -206,7 +218,6 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
                 StorPoolUtil.volumeRemoveTags(StorPoolStorageAdaptor.getVolumeNameFromPath(volume.getPath(), true), conn);
             }
         }
-
     }
 
     private void updateStoragePool(final long poolId, final long deltaUsedBytes) {
@@ -257,16 +268,26 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
     @Override
     public void createAsync(DataStore dataStore, DataObject data, AsyncCompletionCallback<CreateCmdResult> callback) {
         String path = null;
+        String template = null;
+        String tier = null;
         Answer answer;
         if (data.getType() == DataObjectType.VOLUME) {
             try {
                 VolumeInfo vinfo = (VolumeInfo)data;
                 String name = vinfo.getUuid();
                 Long size = vinfo.getPassphraseId() == null ? vinfo.getSize() : vinfo.getSize() + 2097152;
+                Long vmId = vinfo.getInstanceId();
+
                 SpConnectionDesc conn = StorPoolUtil.getSpConnection(dataStore.getUuid(), dataStore.getId(), storagePoolDetailsDao, primaryStoreDao);
 
-                StorPoolUtil.spLog("StorpoolPrimaryDataStoreDriver.createAsync volume: name=%s, uuid=%s, isAttached=%s vm=%s, payload=%s, template: %s", vinfo.getName(), vinfo.getUuid(), vinfo.isAttachedVM(), vinfo.getAttachedVmName(), vinfo.getpayload(), conn.getTemplateName());
-                SpApiResponse resp = StorPoolUtil.volumeCreate(name, null, size, getVMInstanceUUID(vinfo.getInstanceId()), null, "volume", vinfo.getMaxIops(), conn);
+                if (vinfo.getDiskOfferingId() != null) {
+                    tier = getTierFromOfferingDetail(vinfo.getDiskOfferingId());
+                    if (tier == null) {
+                        template = getTemplateFromOfferingDetail(vinfo.getDiskOfferingId());
+                    }
+                }
+
+                SpApiResponse resp = createStorPoolVolume(template, tier, vinfo, name, size, vmId, conn);
                 if (resp.getError() == null) {
                     String volumeName = StorPoolUtil.getNameFromResponse(resp, false);
                     path = StorPoolUtil.devPath(volumeName);
@@ -771,8 +792,30 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
                 }
                 StorPoolUtil.spLog(String.format("volume size is: %d", size));
                 Long vmId = vinfo.getInstanceId();
-                SpApiResponse resp = StorPoolUtil.volumeCreate(name, parentName, size, getVMInstanceUUID(vmId), getVcPolicyTag(vmId),
-                        "volume", vinfo.getMaxIops(), conn);
+
+                String template = null;
+                String tier = null;
+                SpApiResponse resp = new SpApiResponse();
+
+                if (vinfo.getDiskOfferingId() != null) {
+                    tier = getTierFromOfferingDetail(vinfo.getDiskOfferingId());
+                    if (tier == null) {
+                        template = getTemplateFromOfferingDetail(vinfo.getDiskOfferingId());
+                    }
+                }
+
+                if (tier != null || template != null) {
+                    Map<String, String> tags = StorPoolHelper.addStorPoolTags(name, getVMInstanceUUID(vmId), "volume", getVcPolicyTag(vmId), tier);
+
+                    StorPoolUtil.spLog(
+                            "Creating volume [%s] with template [%s] or tier tags [%s] described in disk/service offerings details",
+                            vinfo.getUuid(), template, tier);
+                    resp = StorPoolUtil.volumeCreate(size, parentName, template, tags, conn);
+                } else {
+                    resp = StorPoolUtil.volumeCreate(name, parentName, size, getVMInstanceUUID(vmId),
+                            getVcPolicyTag(vmId), "volume", vinfo.getMaxIops(), conn);
+                }
+
                 if (resp.getError() == null) {
                     updateStoragePool(dstData.getDataStore().getId(), vinfo.getSize());
                     updateVolumePoolType(vinfo);
@@ -1253,5 +1296,54 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
             SpApiResponse resp = StorPoolUtil.detachAllForced(volName, false, conn);
             StorPoolUtil.spLog("The volume [%s] is detach from all clusters [%s]", volName, resp);
         }
+    }
+
+
+    private String getTemplateFromOfferingDetail(Long diskOfferingId) {
+        String template = null;
+        DiskOfferingDetailVO diskOfferingDetail = diskOfferingDetailsDao.findDetail(diskOfferingId, StorPoolUtil.SP_TEMPLATE);
+        if (diskOfferingDetail == null ) {
+            ServiceOfferingVO serviceOffering = serviceOfferingDao.findServiceOfferingByComputeOnlyDiskOffering(diskOfferingId, true);
+            if (serviceOffering != null) {
+                ServiceOfferingDetailsVO serviceOfferingDetail = serviceOfferingDetailDao.findDetail(serviceOffering.getId(), StorPoolUtil.SP_TEMPLATE);
+                if (serviceOfferingDetail != null) {
+                    template = serviceOfferingDetail.getValue();
+                }
+            }
+        } else {
+            template = diskOfferingDetail.getValue();
+        }
+        return template;
+    }
+
+    private String getTierFromOfferingDetail(Long diskOfferingId) {
+        String tier = null;
+        DiskOfferingDetailVO diskOfferingDetail = diskOfferingDetailsDao.findDetail(diskOfferingId, StorPoolUtil.SP_TIER);
+        if (diskOfferingDetail == null ) {
+            return tier;
+        } else {
+            tier = diskOfferingDetail.getValue();
+        }
+        return tier;
+    }
+
+    private SpApiResponse createStorPoolVolume(String template, String tier, VolumeInfo vinfo, String name, Long size,
+            Long vmId, SpConnectionDesc conn) {
+        SpApiResponse resp = new SpApiResponse();
+        Map<String, String> tags = StorPoolHelper.addStorPoolTags(name, getVMInstanceUUID(vmId), "volume", getVcPolicyTag(vmId), tier);
+        if (tier != null || template != null) {
+            StorPoolUtil.spLog(
+                    "Creating volume [%s] with template [%s] or tier tags [%s] described in disk/service offerings details",
+                    vinfo.getUuid(), template, tier);
+            resp = StorPoolUtil.volumeCreate(size, null, template, tags, conn);
+        } else {
+            StorPoolUtil.spLog(
+                    "StorpoolPrimaryDataStoreDriver.createAsync volume: name=%s, uuid=%s, isAttached=%s vm=%s, payload=%s, template: %s",
+                    vinfo.getName(), vinfo.getUuid(), vinfo.isAttachedVM(), vinfo.getAttachedVmName(),
+                    vinfo.getpayload(), conn.getTemplateName());
+            resp = StorPoolUtil.volumeCreate(name, null, size, getVMInstanceUUID(vinfo.getInstanceId()), null,
+                    "volume", vinfo.getMaxIops(), conn);
+        }
+        return resp;
     }
 }

@@ -243,7 +243,7 @@ public class StorPoolHelper {
     }
 
     public static HostVO findHostByCluster(Long clusterId, HostDao hostDao) {
-        List<HostVO> host = hostDao.findByClusterId(clusterId);
+        List<HostVO> host = hostDao.findHypervisorHostInCluster(clusterId);
         return host != null ? host.get(0) : null;
     }
 

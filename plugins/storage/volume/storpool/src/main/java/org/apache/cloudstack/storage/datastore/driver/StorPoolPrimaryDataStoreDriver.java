@@ -616,8 +616,7 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
                         StorPoolHelper.getTimeout(StorPoolHelper.PrimaryStorageDownloadWait, configDao), VirtualMachineManager.ExecuteInSequence.value());
 
                 try {
-                    Long clusterId = StorPoolHelper.findClusterIdByGlobalId(volumeName, clusterDao);
-                    EndPoint ep2 = clusterId != null ? RemoteHostEndPoint.getHypervisorHostEndPoint(StorPoolHelper.findHostByCluster(clusterId, hostDao)) : selector.select(srcData, dstData);
+                    EndPoint ep2 = selector.select(srcData, dstData);
                     if (ep2 == null) {
                         err = "No remote endpoint to send command, check if host or ssvm is down?";
                     } else {

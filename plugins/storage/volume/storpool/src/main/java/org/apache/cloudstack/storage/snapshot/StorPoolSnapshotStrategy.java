@@ -115,6 +115,7 @@ public class StorPoolSnapshotStrategy implements SnapshotStrategy {
                 SpApiResponse resp = StorPoolUtil.snapshotDelete(name, conn);
                 if (resp.getError() != null) {
                     final String err = String.format("Failed to clean-up Storpool snapshot %s. Error: %s", name, resp.getError());
+                    markSnapshotAsDestroyedIfAlreadyRemoved(snapshotId, resp);
                     StorPoolUtil.spLog(err);
                     markSnapshotAsDestroyedIfAlreadyRemoved(snapshotId, resp);
                     throw new CloudRuntimeException(err);

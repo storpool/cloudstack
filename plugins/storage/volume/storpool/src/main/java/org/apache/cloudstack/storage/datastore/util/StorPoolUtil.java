@@ -588,6 +588,12 @@ public class StorPoolUtil {
         return POST("MultiCluster/VolumeUpdate/" + name, json, conn);
     }
 
+    public static SpApiResponse volumeUpadate(String name, String newTemplate, SpConnectionDesc conn) {
+        Map<String, Object> json = new HashMap<>();
+        json.put("template", newTemplate);
+        return POST("MultiCluster/VolumeUpdate/" + name, json, conn);
+    }
+
     public static SpApiResponse volumeUpadateTierTagsOrTemplate(String name, String qosTag, String template, SpConnectionDesc conn) {
         Map<String, Object> json = new HashMap<>();
         Map<String, String> tags = new HashMap<>();

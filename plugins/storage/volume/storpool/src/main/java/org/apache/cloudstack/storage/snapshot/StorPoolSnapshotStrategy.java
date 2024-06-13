@@ -115,6 +115,7 @@ public class StorPoolSnapshotStrategy implements SnapshotStrategy {
                 SpApiResponse resp = StorPoolUtil.snapshotDelete(name, conn);
                 if (resp.getError() != null) {
                     final String err = String.format("Failed to clean-up Storpool snapshot %s. Error: %s", name, resp.getError());
+                    markSnapshotAsDestroyedIfAlreadyRemoved(snapshotId, resp);
                     StorPoolUtil.spLog(err);
                 } else {
                     res = deleteSnapshotFromDbIfNeeded(snapshotVO, zoneId);
@@ -127,6 +128,16 @@ public class StorPoolSnapshotStrategy implements SnapshotStrategy {
         }
 
         return res;
+    }
+
+    private void markSnapshotAsDestroyedIfAlreadyRemoved(Long snapshotId, SpApiResponse resp) {
+        if (resp.getError().getName().equals("objectDoesNotExist")) {
+            SnapshotDataStoreVO snapshotOnPrimary = _snapshotStoreDao.findBySourceSnapshot(snapshotId, DataStoreRole.Primary);
+            if (snapshotOnPrimary != null) {
+                snapshotOnPrimary.setState(State.Destroyed);
+                _snapshotStoreDao.update(snapshotOnPrimary.getId(), snapshotOnPrimary);
+            }
+        }
     }
 
     @Override
@@ -166,7 +177,7 @@ public class StorPoolSnapshotStrategy implements SnapshotStrategy {
         boolean resultIsSet = false;
         try {
             while (snapshot != null &&
-                (snapshot.getState() == Snapshot.State.Destroying || snapshot.getState() == Snapshot.State.Destroyed || snapshot.getState() == Snapshot.State.Error)) {
+                (snapshot.getState() == Snapshot.State.Destroying || snapshot.getState() == Snapshot.State.Destroyed || snapshot.getState() == Snapshot.State.Error || snapshot.getState() == Snapshot.State.BackedUp)) {
                 SnapshotInfo child = snapshot.getChild();
 
                 if (child != null) {
@@ -330,9 +341,21 @@ public class StorPoolSnapshotStrategy implements SnapshotStrategy {
         } else {
             snapshotZoneDao.removeSnapshotFromZones(snapshotVO.getId());
         }
+        if (CollectionUtils.isNotEmpty(retrieveSnapshotEntries(snapshotId, null))) {
+            return true;
+        }
+        updateSnapshotToDestroyed(snapshotVO);
         return true;
     }
 
+    private List<SnapshotInfo> retrieveSnapshotEntries(long snapshotId, Long zoneId) {
+        return snapshotDataFactory.getSnapshots(snapshotId, zoneId);
+    }
+
+    private void updateSnapshotToDestroyed(SnapshotVO snapshotVo) {
+        snapshotVo.setState(Snapshot.State.Destroyed);
+        _snapshotDao.update(snapshotVo.getId(), snapshotVo);
+    }
 
     @Override
     public SnapshotInfo takeSnapshot(SnapshotInfo snapshot) {

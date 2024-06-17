@@ -530,7 +530,8 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
                     SpConnectionDesc conn = StorPoolUtil.getSpConnection(srcData.getDataStore().getUuid(), srcData.getDataStore().getId(), storagePoolDetailsDao, primaryStoreDao);
                     try {
                         Long clusterId = StorPoolHelper.findClusterIdByGlobalId(snapName, clusterDao);
-                        EndPoint ep = clusterId != null ? RemoteHostEndPoint.getHypervisorHostEndPoint(StorPoolHelper.findHostByCluster(clusterId, hostDao)) : selector.select(srcData, dstData);
+                        HostVO host = clusterId != null ? StorPoolHelper.findHostByCluster(clusterId, hostDao) : null;
+                        EndPoint ep = host != null ? RemoteHostEndPoint.getHypervisorHostEndPoint(host) : selector.select(srcData, dstData);
                         if (ep == null) {
                             err = "No remote endpoint to send command, check if host or ssvm is down?";
                         } else {
@@ -782,7 +783,8 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
 
                             try {
                                 Long clusterId = StorPoolHelper.findClusterIdByGlobalId(snapshotName, clusterDao);
-                                EndPoint ep = clusterId != null ? RemoteHostEndPoint.getHypervisorHostEndPoint(StorPoolHelper.findHostByCluster(clusterId, hostDao)) : selector.select(srcData, dstData);
+                                HostVO host = clusterId != null ? StorPoolHelper.findHostByCluster(clusterId, hostDao) : null;
+                                EndPoint ep = host != null ? RemoteHostEndPoint.getHypervisorHostEndPoint(host) : selector.select(srcData, dstData);
                                 StorPoolUtil.spLog("selector.select(srcData, dstData) ", ep);
                                 if (ep == null) {
                                     ep = selector.select(dstData);

@@ -245,7 +245,7 @@ public class StorPoolHelper {
 
     public static HostVO findHostByCluster(Long clusterId, HostDao hostDao) {
         List<HostVO> host = hostDao.findHypervisorHostInCluster(clusterId);
-        return host != null ? host.get(0) : null;
+        return CollectionUtils.isNotEmpty(host) ? host.get(0) : null;
     }
 
     public static int getTimeout(String cfg, ConfigurationDao configDao) {

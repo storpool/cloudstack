@@ -26,6 +26,7 @@ import java.util.List;
 
 import javax.inject.Inject;
 
+import com.cloud.dc.ClusterDetailsVO;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreManager;
 import org.apache.cloudstack.engine.subsystem.api.storage.HypervisorHostListener;
 import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
@@ -37,6 +38,8 @@ import org.apache.cloudstack.storage.datastore.util.StorPoolHelper;
 import org.apache.cloudstack.storage.datastore.util.StorPoolUtil;
 import org.apache.cloudstack.storage.datastore.util.StorPoolUtil.SpApiResponse;
 import org.apache.cloudstack.storage.datastore.util.StorPoolUtil.SpConnectionDesc;
+import org.apache.cloudstack.storage.snapshot.StorPoolConfigurationManager;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.log4j.Logger;
 
@@ -215,7 +218,20 @@ public class StorPoolHostListener implements HypervisorHostListener {
 
     @Override
     public boolean hostRemoved(long hostId, long clusterId) {
+        List<HostVO> hosts = hostDao.findByClusterId(clusterId);
+        if (CollectionUtils.isNotEmpty(hosts) && hosts.size() == 1) {
+            removeSPClusterIdWhenTheLastHostIsRemoved(clusterId);
+        }
         return true;
+    }
+
+    private void removeSPClusterIdWhenTheLastHostIsRemoved(long clusterId) {
+        ClusterDetailsVO clusterDetailsVo = clusterDetailsDao.findDetail(clusterId,
+                StorPoolConfigurationManager.StorPoolClusterId.key());
+        if (clusterDetailsVo != null && (clusterDetailsVo.getValue() != null && !clusterDetailsVo.getValue().equals(StorPoolConfigurationManager.StorPoolClusterId.defaultValue())) ){
+            clusterDetailsVo.setValue(StorPoolConfigurationManager.StorPoolClusterId.defaultValue());
+            clusterDetailsDao.update(clusterDetailsVo.getId(), clusterDetailsVo);
+        }
     }
 
     //workaround: we need this "hack" to add our command StorPoolModifyStoragePoolCommand in AgentAttache.s_commandsAllowedInMaintenanceMode

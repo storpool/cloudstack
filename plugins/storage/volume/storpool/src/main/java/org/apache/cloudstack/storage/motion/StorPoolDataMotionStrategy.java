@@ -26,6 +26,7 @@ import java.util.Map;
 
 import javax.inject.Inject;
 
+import com.cloud.host.HostVO;
 import org.apache.cloudstack.engine.subsystem.api.storage.CopyCommandResult;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataMotionStrategy;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataObject;
@@ -206,9 +207,10 @@ public class StorPoolDataMotionStrategy implements DataMotionStrategy {
                 // StorpoolStorageAdaptor.getVolumeNameFromPath(((SnapshotInfo)
                 // srcData).getPath(), true);
                 Long clusterId = StorPoolHelper.findClusterIdByGlobalId(parentName, _clusterDao);
-                EndPoint ep2 = clusterId != null
+                HostVO host = clusterId != null ? StorPoolHelper.findHostByCluster(clusterId, _hostDao) : null;
+                EndPoint ep2 = host != null
                         ? RemoteHostEndPoint
-                                .getHypervisorHostEndPoint(StorPoolHelper.findHostByCluster(clusterId, _hostDao))
+                                .getHypervisorHostEndPoint(host)
                         : _selector.select(sInfo, destData);
                 if (ep2 == null) {
                     err = "No remote endpoint to send command, check if host or ssvm is down?";

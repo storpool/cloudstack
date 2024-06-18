@@ -41,6 +41,7 @@ import org.apache.cloudstack.storage.datastore.util.StorPoolUtil.SpApiResponse;
 import org.apache.cloudstack.storage.snapshot.StorPoolConfigurationManager;
 import org.apache.cloudstack.storage.to.VolumeObjectTO;
 import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.log4j.Appender;
 import org.apache.log4j.Logger;
 import org.apache.log4j.PatternLayout;
@@ -232,7 +233,7 @@ public class StorPoolHelper {
             return null;
         }
         for (ClusterVO clusterVO2 : clusterVo) {
-            if (globalId != null && StorPoolConfigurationManager.StorPoolClusterId.valueIn(clusterVO2.getId()) != null
+            if (globalId != null && StringUtils.isNotEmpty(StorPoolConfigurationManager.StorPoolClusterId.valueIn(clusterVO2.getId()))
                     && globalId.contains(StorPoolConfigurationManager.StorPoolClusterId.valueIn(clusterVO2.getId()).toString())) {
                 StorPoolUtil.spLog("Found cluster with id=%s for object with globalId=%s", clusterVO2.getId(),
                         globalId);

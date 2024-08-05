@@ -1152,6 +1152,9 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
     @Override
     public void provideVmInfo(long vmId, long volumeId) {
         VolumeVO volume = volumeDao.findById(volumeId);
+        if (volume.getInstanceId() == null) {
+            return;
+        }
         StoragePoolVO poolVO = primaryStoreDao.findById(volume.getPoolId());
         if (poolVO != null) {
             try {

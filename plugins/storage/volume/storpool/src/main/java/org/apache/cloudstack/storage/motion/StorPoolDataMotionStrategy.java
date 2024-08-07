@@ -26,6 +26,7 @@ import java.util.Map;
 
 import javax.inject.Inject;
 
+import com.cloud.host.HostVO;
 import org.apache.cloudstack.engine.subsystem.api.storage.CopyCommandResult;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataMotionStrategy;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataObject;
@@ -206,33 +207,32 @@ public class StorPoolDataMotionStrategy implements DataMotionStrategy {
                 // StorpoolStorageAdaptor.getVolumeNameFromPath(((SnapshotInfo)
                 // srcData).getPath(), true);
                 Long clusterId = StorPoolHelper.findClusterIdByGlobalId(parentName, _clusterDao);
-                EndPoint ep2 = clusterId != null
-                        ? RemoteHostEndPoint
-                                .getHypervisorHostEndPoint(StorPoolHelper.findHostByCluster(clusterId, _hostDao))
+                HostVO host = clusterId != null ? StorPoolHelper.findHostByCluster(clusterId, _hostDao) : null;
+                EndPoint ep2 = host != null ? RemoteHostEndPoint
+                        .getHypervisorHostEndPoint(host)
                         : _selector.select(sInfo, destData);
                 if (ep2 == null) {
                     err = "No remote endpoint to send command, check if host or ssvm is down?";
                 } else {
                     answer = (CopyCmdAnswer) ep2.sendMessage(backupSnapshot);
                     if (answer != null && answer.getResult()) {
-                        SpApiResponse resSnapshot = StorPoolUtil.volumeFreeze(volumeName, conn);
+                        SpApiResponse resSnapshot = StorPoolUtil.volumeSnapshot(volumeName, template.getUuid(), null, "template", null, conn);
                         if (resSnapshot.getError() != null) {
                             log.debug(String.format("Could not snapshot volume with ID=%s", snapshot.getId()));
-                            StorPoolUtil.spLog("Volume freeze failed with error=%s", resSnapshot.getError().getDescr());
+                            StorPoolUtil.spLog("Volume snapshot failed with error=%s", resSnapshot.getError().getDescr());
                             err = resSnapshot.getError().getDescr();
-                            StorPoolUtil.volumeDelete(volumeName, conn);
                         } else {
+                            String templPath = StorPoolUtil.devPath(
+                                    StorPoolUtil.getSnapshotNameFromResponse(resSnapshot, false, StorPoolUtil.GLOBAL_ID));
                             StorPoolHelper.updateVmStoreTemplate(template.getId(), template.getDataStore().getRole(),
-                                    StorPoolUtil.devPath(StorPoolUtil.getNameFromResponse(res, false)), _templStoreDao);
+                                    templPath, _templStoreDao);
                         }
-                    } else {
-                        err = "Could not copy template to secondary " + answer.getResult();
-                        StorPoolUtil.volumeDelete(StorPoolUtil.getNameFromResponse(res, true), conn);
                     }
                 }
             } catch (CloudRuntimeException e) {
                 err = e.getMessage();
             }
+            StorPoolUtil.volumeDelete(volumeName, conn);
         }
         _vmTemplateDetailsDao.persist(new VMTemplateDetailVO(template.getId(), StorPoolUtil.SP_STORAGE_POOL_ID,
                 String.valueOf(vInfo.getDataStore().getId()), false));

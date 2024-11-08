@@ -134,6 +134,9 @@ public class StorPoolUtil {
     public static final String DELAY_DELETE = "delayDelete";
 
     public static final String SP_TIER = "SP_QOSCLASS";
+
+    public static final String OBJECT_DOES_NOT_EXIST = "objectDoesNotExist";
+
     public static enum StorpoolRights {
         RO("ro"), RW("rw"), DETACH("detach");
 

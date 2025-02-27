@@ -607,16 +607,12 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
                             // if error during snapshot backup, cleanup the StorPool snapshot
                             if (answer != null && !answer.getResult()) {
                                 StorPoolUtil.spLog(String.format("Error while backing-up snapshot '%s' - cleaning up StorPool snapshot. Error: %s", snapName, answer.getDetails()));
-                                SpApiResponse resp = StorPoolUtil.snapshotDelete(snapName, conn);
-                                if (resp.getError() != null) {
-                                    final String err2 = String.format("Failed to cleanup StorPool snapshot '%s'. Error: %s.", snapName, resp.getError());
-                                    log.error(err2);
-                                    StorPoolUtil.spLog(err2);
-                                }
+                                deleteSnapshot(snapName, conn);
                             }
                         }
                     } catch (CloudRuntimeException e) {
                         err = e.getMessage();
+                        deleteSnapshot(snapName, conn);
                     }
                 }
             } else if (srcType == DataObjectType.VOLUME && dstType == DataObjectType.TEMPLATE) {
@@ -901,6 +897,16 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
         CopyCommandResult res = new CopyCommandResult(null, answer);
         res.setResult(err);
         callback.complete(res);
+    }
+
+    private static void deleteSnapshot(String snapName, SpConnectionDesc conn) {
+
+        SpApiResponse resp = StorPoolUtil.snapshotDelete(snapName, conn);
+        if (resp.getError() != null) {
+            final String err2 = String.format("Failed to cleanup StorPool snapshot '%s'. Error: %s.", snapName, resp.getError());
+            log.error(err2);
+            StorPoolUtil.spLog(err2);
+        }
     }
 
     private Answer createVolumeSnapshot(StorageSubSystemCommand cmd, Long size, SpConnectionDesc conn,

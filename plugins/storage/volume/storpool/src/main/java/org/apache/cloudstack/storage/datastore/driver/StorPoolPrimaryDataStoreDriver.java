@@ -895,7 +895,7 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
                     template = conn.getTemplateName();
                 }
 
-                StorPoolVolumeDef volumeDef = new StorPoolVolumeDef(null, size, tags, parentName, null, template, null, null, null);
+                StorPoolVolumeDef volumeDef = new StorPoolVolumeDef(null, size, tags, parentName, vinfo.getMaxIops(), template, null, null, null);
                 resp = StorPoolUtil.volumeCreate(volumeDef, conn);
 
                 if (resp.getError() == null) {

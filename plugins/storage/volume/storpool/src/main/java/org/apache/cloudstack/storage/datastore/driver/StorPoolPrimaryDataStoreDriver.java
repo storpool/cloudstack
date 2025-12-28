@@ -1398,11 +1398,11 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
             SpConnectionDesc conn = StorPoolUtil.getSpConnection(poolVO.getUuid(), poolVO.getId(), storagePoolDetailsDao, primaryStoreDao);
             String volName = StorPoolStorageAdaptor.getVolumeNameFromPath(vInfo.getPath(), true);
             Pair<String, String> templateAndTier = getTemplateAndTier(vInfo, conn);
-            Map<String, String> tags = StorPoolHelper.addStorPoolTags(volName, getVMInstanceUUID(vInfo.getInstanceId()), "volume", getVcPolicyTag(vInfo.getInstanceId()), templateAndTier.first());
+            Map<String, String> tags = StorPoolHelper.addStorPoolTags(vInfo.getUuid(), getVMInstanceUUID(vInfo.getInstanceId()), "volume", getVcPolicyTag(vInfo.getInstanceId()), templateAndTier.first());
             if (vInfo.getDeviceId() != null) {
                 tags.put("disk", vInfo.getDeviceId().toString());
             }
-            StorPoolVolumeDef spVolume = new StorPoolVolumeDef(volName, null, tags, null, null, templateAndTier.second(), null, null, null);
+            StorPoolVolumeDef spVolume = new StorPoolVolumeDef(volName, null, tags, null, null, null, null, null, null);
             StorPoolUtil.spLog("Updating volume's tags [%s] with template [%s]", tags, templateAndTier.second());
             SpApiResponse resp = StorPoolUtil.volumeUpdate(spVolume, conn);
             if (resp.getError() != null) {

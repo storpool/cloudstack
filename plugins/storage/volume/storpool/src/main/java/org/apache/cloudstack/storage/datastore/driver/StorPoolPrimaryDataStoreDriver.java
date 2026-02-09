@@ -632,8 +632,26 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
                 VolumeInfo vinfo = (VolumeInfo)dstData;
                 final String volumeName = vinfo.getUuid();
                 final Long size = vinfo.getSize();
+                String tier = null;
+                String template = null;
+                if (vinfo.getDiskOfferingId() != null) {
+                    tier = getTierFromOfferingDetail(vinfo.getDiskOfferingId());
+                    if (tier == null) {
+                        template = getTemplateFromOfferingDetail(vinfo.getDiskOfferingId());
+                    }
+                }
                 SpConnectionDesc conn = StorPoolUtil.getSpConnection(vinfo.getDataStore().getUuid(), vinfo.getDataStore().getId(), storagePoolDetailsDao, primaryStoreDao);
-                SpApiResponse resp = StorPoolUtil.volumeCreate(volumeName, snapshotName, size, null, null, "volume", sinfo.getBaseVolume().getMaxIops(), conn);
+                SpApiResponse resp = null;
+                if (tier != null || template != null) {
+                    Map<String, String> tags = StorPoolHelper.addStorPoolTags(volumeName, null, "volume", null, tier);
+
+                    StorPoolUtil.spLog(
+                            "Creating volume [%s] with template [%s] or tier tags [%s] described in disk/service offerings details",
+                            vinfo.getUuid(), template, tier);
+                    resp = StorPoolUtil.volumeCreate(size, snapshotName, template, tags, conn);
+                } else {
+                    resp = StorPoolUtil.volumeCreate(volumeName, snapshotName, size, null, null, "volume", sinfo.getBaseVolume().getMaxIops(), conn);
+                }
                 if (resp.getError() == null) {
                     updateStoragePool(dstData.getDataStore().getId(), size);
 
@@ -669,6 +687,7 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
                 // bypass secondary storage
                 if (StorPoolConfigurationManager.BypassSecondaryStorage.value() || snapshotDetail != null) {
                     SnapshotObjectTO snapshot = (SnapshotObjectTO) srcData.getTO();
+                    snapshot.setPhysicalSize(sinfo.getSize());
                     answer = new CopyCmdAnswer(snapshot);
                 } else {
                     // copy snapshot to secondary storage (backup snapshot)

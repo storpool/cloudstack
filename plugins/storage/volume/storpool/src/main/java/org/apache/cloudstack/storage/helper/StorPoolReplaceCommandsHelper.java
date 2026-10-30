@@ -20,6 +20,7 @@ import org.apache.cloudstack.api.BaseAsyncCmd;
 import org.apache.cloudstack.api.BaseAsyncCreateCmd;
 import org.apache.cloudstack.api.command.admin.vm.ScaleVMCmdByAdmin;
 import org.apache.cloudstack.api.command.admin.volume.ResizeVolumeCmdByAdmin;
+import org.apache.cloudstack.api.command.user.template.DeleteTemplateCmd;
 import org.apache.cloudstack.api.command.user.vm.ScaleVMCmd;
 import org.apache.cloudstack.api.command.user.volume.ChangeOfferingForVolumeCmd;
 import org.apache.cloudstack.api.command.user.volume.ResizeVolumeCmd;
@@ -113,7 +114,8 @@ public class StorPoolReplaceCommandsHelper implements PluggableService {
                         ResizeVolumeCmdByAdmin.class.getAnnotation(APICommand.class),
                         ScaleVMCmd.class.getAnnotation(APICommand.class),
                         ScaleVMCmdByAdmin.class.getAnnotation(APICommand.class),
-                        ChangeOfferingForVolumeCmd.class.getAnnotation(APICommand.class)));
+                        ChangeOfferingForVolumeCmd.class.getAnnotation(APICommand.class),
+                        DeleteTemplateCmd.class.getAnnotation(APICommand.class)));
         changeAnnotationValue(annotations, "name", "");
     }
 
@@ -145,7 +147,7 @@ public class StorPoolReplaceCommandsHelper implements PluggableService {
     @Override
     public List<Class<?>> getCommands() {
         return new ArrayList<>(Arrays.asList(StorPoolResizeVolumeCmd.class, StorPoolResizeVolumeCmdByAdmin.class,
-                StorPoolScaleVMCmd.class, StorPoolScaleVMCmdByAdmin.class, StorPoolChangeOfferingForVolumeCmd.class));
+                StorPoolScaleVMCmd.class, StorPoolScaleVMCmdByAdmin.class, StorPoolChangeOfferingForVolumeCmd.class, StorPoolDeleteTemplateCmd.class));
     }
 
     public static class StorPoolReplaceCommandsUtil {

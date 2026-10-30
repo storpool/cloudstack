@@ -2042,6 +2042,102 @@ class TestStoragePool(cloudstackTestCase):
         self.assertIsInstance(template, Template, "Template is instance of template")
         self._cleanup.append(template)
 
+    @attr(tags=["advanced", "advancedns", "smoke"], required_hardware="true")
+    def test_30_delete_template_from_snapshot_deleted_on_storpool(self):
+        ''' Delete template created from snapshot bypassing secondary storage
+            and check that its snapshot is deleted on StorPool
+        '''
+        volume = list_volumes(
+                        self.apiclient,
+                        virtualmachineid = self.virtual_machine.id,
+                        type = "ROOT",
+                        listall = True,
+                        )
+
+        backup_config = Configurations.update(self.apiclient,
+            name = "sp.bypass.secondary.storage",
+            value = "true")
+
+        snapshot = Snapshot.create(
+           self.apiclient,
+            volume_id = volume[0].id,
+            account=self.account.name,
+            domainid=self.account.domainid,
+            )
+        self.assertIsNotNone(snapshot, "Could not create snapshot")
+        self._cleanup.append(snapshot)
+
+        template = self.create_template_from_snapshot(
+            self.apiclient,
+            self.services,
+            snapshotid = snapshot.id
+            )
+        self.assertIsNotNone(template, "Template is None")
+
+        sp_snapshot = self.get_sp_snapshot_of_template(template.id)
+        self.assertIsNotNone(sp_snapshot, "Template %s does not exist on StorPool" % template.id)
+
+        Template.delete(template, self.apiclient, self.zone.id)
+
+        self.assert_template_deleted_on_storpool(template.id, sp_snapshot.globalId)
+
+    @attr(tags=["advanced", "advancedns", "smoke"], required_hardware="true")
+    def test_31_delete_template_from_volume_deleted_on_storpool(self):
+        ''' Delete template created from ROOT volume
+            and check that its snapshot is deleted on StorPool
+        '''
+        volume = Volume.list(
+            self.apiclient,
+            virtualmachineid = self.virtual_machine.id,
+            type = "ROOT",
+            listall = True,
+            )
+
+        self.virtual_machine.stop(self.apiclient)
+
+        template = self.create_template_from_snapshot(
+            self.apiclient,
+            self.services,
+            volumeid = volume[0].id
+            )
+        self.assertIsNotNone(template, "Template is None")
+
+        sp_snapshot = self.get_sp_snapshot_of_template(template.id)
+        self.assertIsNotNone(sp_snapshot, "Template %s does not exist on StorPool" % template.id)
+
+        Template.delete(template, self.apiclient, self.zone.id)
+
+        self.assert_template_deleted_on_storpool(template.id, sp_snapshot.globalId)
+
+    def get_sp_snapshot_of_template(self, template_id):
+        ''' Returns the StorPool snapshot tagged with the template's UUID or None '''
+        for snap in self.spapi.snapshotsList():
+            if getattr(snap, "deleted", False):
+                continue
+            if template_id in snap.tags.values():
+                return snap
+        return None
+
+    def assert_template_deleted_on_storpool(self, template_id, global_id):
+        templates = Template.list(
+            self.apiclient,
+            templatefilter = "all",
+            id = template_id,
+            zoneid = self.zone.id
+            )
+        self.assertIsNone(templates, "Template %s was not deleted in CloudStack" % template_id)
+
+        try:
+            sp_snapshot = self.spapi.snapshotList(snapshotName = "~" + global_id)
+            self.assertTrue(len(sp_snapshot) == 0 or getattr(sp_snapshot[0], "deleted", False),
+                "Snapshot ~%s of template %s still exists on StorPool" % (global_id, template_id))
+        except spapi.ApiError as err:
+            self.assertIn("objectDoesNotExist", "%s %s" % (getattr(err, "name", ""), err),
+                "Unexpected StorPool error while checking snapshot ~%s: %s" % (global_id, err))
+
+        self.assertIsNone(self.get_sp_snapshot_of_template(template_id),
+            "Template %s is still tagged on a StorPool snapshot" % template_id)
+
     @classmethod
     def create_volume(self, apiclient, zoneid=None, snapshotid=None, account=None, domainid=None):
         """Create Volume"""

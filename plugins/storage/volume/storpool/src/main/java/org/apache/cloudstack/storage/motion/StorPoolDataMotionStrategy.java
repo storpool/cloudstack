@@ -27,6 +27,7 @@ import com.cloud.agent.api.MigrateCommand;
 import com.cloud.agent.api.MigrateCommand.MigrateDiskInfo;
 import com.cloud.agent.api.ModifyTargetsAnswer;
 import com.cloud.agent.api.ModifyTargetsCommand;
+import com.cloud.agent.api.PrepareForMigrationAnswer;
 import com.cloud.agent.api.PrepareForMigrationCommand;
 import com.cloud.agent.api.storage.StorPoolBackupTemplateFromSnapshotCommand;
 import com.cloud.agent.api.to.DataObjectType;
@@ -342,8 +343,9 @@ public class StorPoolDataMotionStrategy implements DataMotionStrategy {
 
             PrepareForMigrationCommand pfmc = new PrepareForMigrationCommand(vmTO);
 
+            Answer pfma;
             try {
-                Answer pfma = _agentManager.send(destHost.getId(), pfmc);
+                pfma = _agentManager.send(destHost.getId(), pfmc);
 
                 if (pfma == null || !pfma.getResult()) {
                     String details = pfma != null ? pfma.getDetails() : "null answer returned";
@@ -366,6 +368,12 @@ public class StorPoolDataMotionStrategy implements DataMotionStrategy {
             migrateCommand.setMigrateStorage(migrateStorage);
             migrateCommand.setMigrateStorageManaged(true);
             migrateCommand.setMigrateDiskInfoList(migrateDiskInfoList);
+
+            Integer newVmCpuShares = ((PrepareForMigrationAnswer) pfma).getNewVmCpuShares();
+            if (newVmCpuShares != null) {
+                logger.debug("Setting CPU shares to [{}] as part of migrate VM with volumes command for VM [{}].", newVmCpuShares, vmTO);
+                migrateCommand.setNewVmCpuShares(newVmCpuShares);
+            }
 
             boolean kvmAutoConvergence = StorageManager.KvmAutoConvergence.value();
 

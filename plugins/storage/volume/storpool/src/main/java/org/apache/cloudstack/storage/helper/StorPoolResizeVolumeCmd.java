@@ -5,6 +5,7 @@ import javax.inject.Inject;
 import org.apache.cloudstack.acl.SecurityChecker.AccessType;
 import org.apache.cloudstack.api.ACL;
 import org.apache.cloudstack.api.APICommand;
+import org.apache.cloudstack.api.ApiCommandResourceType;
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.api.BaseAsyncCmd;
 import org.apache.cloudstack.api.Parameter;
@@ -98,5 +99,15 @@ public class StorPoolResizeVolumeCmd extends BaseAsyncCmd {
             replaceCommands.updateVolumeTemplate(id, newDiskOfferingId);
         }
         this.setResponseObject(this.resizeVolume.getResponseObject());
+    }
+
+    @Override
+    public ApiCommandResourceType getApiResourceType() {
+        return ApiCommandResourceType.Volume;
+    }
+
+    @Override
+    public Long getApiResourceId() {
+        return id;
     }
 }

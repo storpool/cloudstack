@@ -8,6 +8,7 @@ import javax.inject.Inject;
 import org.apache.cloudstack.acl.SecurityChecker.AccessType;
 import org.apache.cloudstack.api.ACL;
 import org.apache.cloudstack.api.APICommand;
+import org.apache.cloudstack.api.ApiCommandResourceType;
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.api.BaseAsyncCmd;
 import org.apache.cloudstack.api.BaseCmd;
@@ -111,4 +112,13 @@ public class StorPoolScaleVMCmd extends BaseAsyncCmd {
         return this.scaleVMCmd.getEntityOwnerId();
     }
 
+    @Override
+    public ApiCommandResourceType getApiResourceType() {
+        return ApiCommandResourceType.VirtualMachine;
+    }
+
+    @Override
+    public Long getApiResourceId() {
+        return id;
+    }
 }

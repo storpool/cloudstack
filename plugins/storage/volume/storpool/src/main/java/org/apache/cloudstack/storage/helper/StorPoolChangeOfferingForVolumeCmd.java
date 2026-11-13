@@ -4,6 +4,7 @@ import javax.inject.Inject;
 
 import org.apache.cloudstack.acl.RoleType;
 import org.apache.cloudstack.api.APICommand;
+import org.apache.cloudstack.api.ApiCommandResourceType;
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.api.BaseAsyncCmd;
 import org.apache.cloudstack.api.Parameter;
@@ -115,5 +116,15 @@ public class StorPoolChangeOfferingForVolumeCmd extends BaseAsyncCmd {
         replaceCommands.ensureCmdHasRequiredValues(this.changeOfferingForVolumeCmd, this);
 
         return changeOfferingForVolumeCmd.getEntityOwnerId();
+    }
+
+    @Override
+    public ApiCommandResourceType getApiResourceType() {
+        return ApiCommandResourceType.Volume;
+    }
+
+    @Override
+    public Long getApiResourceId() {
+        return id;
     }
 }

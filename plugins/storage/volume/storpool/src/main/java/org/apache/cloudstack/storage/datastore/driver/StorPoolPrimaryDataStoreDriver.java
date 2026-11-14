@@ -70,7 +70,6 @@ import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
 
 import com.cloud.agent.api.Answer;
-import com.cloud.agent.api.storage.ResizeVolumeAnswer;
 import com.cloud.agent.api.storage.StorPoolBackupSnapshotCommand;
 import com.cloud.agent.api.storage.StorPoolBackupTemplateFromSnapshotCommand;
 import com.cloud.agent.api.storage.StorPoolCopyVolumeToSecondaryCommand;
@@ -84,7 +83,6 @@ import com.cloud.agent.api.to.DataStoreTO;
 import com.cloud.agent.api.to.DataTO;
 import com.cloud.agent.api.to.StorageFilerTO;
 import com.cloud.dc.dao.ClusterDao;
-import com.cloud.exception.StorageUnavailableException;
 import com.cloud.host.Host;
 import com.cloud.host.HostVO;
 import com.cloud.host.dao.HostDao;
@@ -126,6 +124,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
+
+    // space reserved on the StorPool volume for the LUKS header of encrypted volumes
+    static final long LUKS_HEADER_SIZE = 2097152;
 
     protected Logger logger = LogManager.getLogger(getClass());
 
@@ -280,7 +281,7 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
             try {
                 VolumeInfo vinfo = (VolumeInfo)data;
                 String name = vinfo.getUuid();
-                Long size = vinfo.getPassphraseId() == null ? vinfo.getSize() : vinfo.getSize() + 2097152;
+                Long size = getStorPoolVolumeSize(vinfo, vinfo.getSize());
                 Long vmId = vinfo.getInstanceId();
 
                 SpConnectionDesc conn = StorPoolUtil.getSpConnection(dataStore.getUuid(), dataStore.getId(), storagePoolDetailsDao, primaryStoreDao);
@@ -301,11 +302,13 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
 
                     if (vinfo.getPassphraseId() != null) {
                         VolumeObjectTO volume = updateVolumeObjectTO(vinfo, resp);
-                        answer = createEncryptedVolume(dataStore, data, vinfo, size, volume, null, true);
+                        answer = createEncryptedVolume(data, vinfo, volume, null, true, conn);
                     } else {
                         answer = new Answer(null, true, null);
                     }
-                    updateStoragePool(dataStore.getId(), size);
+                    if (answer.getResult()) {
+                        updateStoragePool(dataStore.getId(), size);
+                    }
                     StorPoolUtil.spLog("StorpoolPrimaryDataStoreDriver.createAsync volume: name=%s, uuid=%s, isAttached=%s vm=%s, payload=%s, template: %s", volumeName, vinfo.getUuid(), vinfo.isAttachedVM(), vinfo.getAttachedVmName(), vinfo.getpayload(), conn.getTemplateName());
                 } else {
                     answer = new Answer(null, false, String.format("Could not create StorPool volume %s. Error: %s", name, resp.getError()));
@@ -351,7 +354,8 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
         volumeDao.update(volume.getId(), volume);
     }
 
-    private StorPoolSetVolumeEncryptionAnswer createEncryptedVolume(DataStore dataStore, DataObject data, VolumeInfo vinfo, Long size, VolumeObjectTO volume, String parentName, boolean isDataDisk) {
+    private StorPoolSetVolumeEncryptionAnswer createEncryptedVolume(DataObject data, VolumeInfo vinfo, VolumeObjectTO volume, String parentName, boolean isDataDisk,
+            SpConnectionDesc conn) {
         StorPoolSetVolumeEncryptionAnswer ans;
         EndPoint ep = null;
         if (parentName == null) {
@@ -369,12 +373,26 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
             ans = new StorPoolSetVolumeEncryptionAnswer(null, false, "Could not find a host with volume encryption");
         } else {
             StorPoolSetVolumeEncryptionCommand cmd = new StorPoolSetVolumeEncryptionCommand(volume, parentName, isDataDisk);
-            ans = (StorPoolSetVolumeEncryptionAnswer) ep.sendMessage(cmd);
-            if (ans.getResult()) {
-                updateStoragePool(dataStore.getId(), size);
+            Answer answer = ep.sendMessage(cmd);
+            if (answer instanceof StorPoolSetVolumeEncryptionAnswer) {
+                ans = (StorPoolSetVolumeEncryptionAnswer) answer;
+            } else {
+                ans = new StorPoolSetVolumeEncryptionAnswer(cmd, false, answer != null ? answer.getDetails() : "Could not encrypt the volume, a null answer was returned");
             }
         }
+        if (!ans.getResult()) {
+            deleteVolumeAfterFailedEncryption(volume, conn);
+        }
         return ans;
+    }
+
+    private void deleteVolumeAfterFailedEncryption(VolumeObjectTO volume, SpConnectionDesc conn) {
+        String name = StorPoolStorageAdaptor.getVolumeNameFromPath(volume.getPath(), true);
+        StorPoolUtil.spLog("Deleting StorPool volume %s, because it could not be encrypted", name);
+        SpApiResponse resp = StorPoolUtil.volumeDelete(name, conn);
+        if (resp.getError() != null) {
+            logger.warn("Could not delete StorPool volume {} after a failed encryption due to {}", name, resp.getError());
+        }
     }
 
     @Override
@@ -414,7 +432,7 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
             }
             if (err != null) {
                 // try restoring volume to its initial size
-                SpApiResponse response = StorPoolUtil.volumeUpdate(name, oldSize, true, oldMaxIops, conn);
+                SpApiResponse response = StorPoolUtil.volumeUpdate(name, getStorPoolVolumeSize(vol, oldSize), true, oldMaxIops, conn);
                 if (response.getError() != null) {
                     logger.debug(String.format("Could not resize StorPool volume %s back to its original size. Error: %s", name, response.getError()));
                 }
@@ -429,7 +447,7 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
     }
 
     private void updateVolumeWithTheNewSize(VolumeObject vol, ResizeVolumePayload payload) {
-
+        long oldSize = vol.getSize();
         vol.setSize(payload.newSize);
         vol.update();
         if (payload.newMaxIops != null) {
@@ -437,16 +455,21 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
             volume.setMaxIops(payload.newMaxIops);
             volumeDao.update(volume.getId(), volume);
         }
-        updateStoragePool(vol.getPoolId(), payload.newSize - vol.getSize());
+        updateStoragePool(vol.getPoolId(), payload.newSize - oldSize);
     }
 
-    private String notifyQemuForTheNewSize(DataObject data, String err, VolumeObject vol, ResizeVolumePayload payload)
-            throws StorageUnavailableException {
+    private String notifyQemuForTheNewSize(DataObject data, String err, VolumeObject vol, ResizeVolumePayload payload) {
         StoragePool pool = (StoragePool)data.getDataStore();
 
         StorPoolResizeVolumeCommand resizeCmd = new StorPoolResizeVolumeCommand(vol.getPath(), new StorageFilerTO(pool), vol.getSize(), payload.newSize, payload.shrinkOk,
                 payload.instanceName, payload.hosts == null ? false : true);
-        ResizeVolumeAnswer answer = (ResizeVolumeAnswer) storageMgr.sendToPool(pool, payload.hosts, resizeCmd);
+        // any failure is returned as an error, so the StorPool volume is restored to its initial size
+        Answer answer;
+        try {
+            answer = storageMgr.sendToPool(pool, payload.hosts, resizeCmd);
+        } catch (Exception e) {
+            return String.format("Could not send the resize command for volume [%s] due to: %s", vol.getPath(), e.getMessage());
+        }
 
         if (answer == null || !answer.getResult()) {
             err = answer != null ? answer.getDetails() : "return a null answer, resize failed for unknown reason";
@@ -468,7 +491,7 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
         }
         SpApiResponse resp = new SpApiResponse();
         if (tier != null || template != null) {
-            resp = updateVolumeByStorPoolQoS(payload, conn, name, tier, template);
+            resp = updateVolumeByStorPoolQoS(vol, payload, conn, name, tier, template);
         } else {
             resp = updateVolumeByOffering(vol, payload, conn, name);
         }
@@ -478,11 +501,11 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
         return err;
     }
 
-    private static SpApiResponse updateVolumeByStorPoolQoS(ResizeVolumePayload payload, SpConnectionDesc conn, String name, String tier, String template) {
+    private static SpApiResponse updateVolumeByStorPoolQoS(VolumeObject vol, ResizeVolumePayload payload, SpConnectionDesc conn, String name, String tier, String template) {
 
         SpApiResponse resp;
         Map<String, String> tags = StorPoolHelper.addStorPoolTags(null, null, null, null, tier);
-        StorPoolVolumeDef spVolume = new StorPoolVolumeDef(name, payload.newSize, tags, null, null, template, null, null,
+        StorPoolVolumeDef spVolume = new StorPoolVolumeDef(name, getStorPoolVolumeSize(vol, payload.newSize), tags, null, null, template, null, null,
                 payload.shrinkOk);
         resp = StorPoolUtil.volumeUpdate(spVolume, conn);
         return resp;
@@ -492,15 +515,23 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
 
         SpApiResponse resp;
         long maxIops = payload.newMaxIops == null ? Long.valueOf(0) : payload.newMaxIops;
+        Long newSize = getStorPoolVolumeSize(vol, payload.newSize);
 
-        StorPoolVolumeDef spVolume = new StorPoolVolumeDef(name, payload.newSize, null, null, maxIops, null, null, null,
+        StorPoolVolumeDef spVolume = new StorPoolVolumeDef(name, newSize, null, null, maxIops, null, null, null,
                 payload.shrinkOk);
         StorPoolUtil.spLog(
                 "StorpoolPrimaryDataStoreDriverImpl.resize: name=%s, uuid=%s, oldSize=%d, newSize=%s, shrinkOk=%s, maxIops=%s",
-                name, vol.getUuid(), vol.getSize(), payload.newSize, payload.shrinkOk, maxIops);
+                name, vol.getUuid(), vol.getSize(), newSize, payload.shrinkOk, maxIops);
 
         resp = StorPoolUtil.volumeUpdate(spVolume, conn);
         return resp;
+    }
+
+    static Long getStorPoolVolumeSize(VolumeInfo vol, Long size) {
+        if (size == null || vol.getPassphraseId() == null) {
+            return size;
+        }
+        return size + LUKS_HEADER_SIZE;
     }
 
     @Override
@@ -869,11 +900,10 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
                         vinfo.getDataStore().getId(), storagePoolDetailsDao, primaryStoreDao);
 
                 Long snapshotSize = templStoragePoolVO.getTemplateSize();
-                boolean withoutEncryption = vinfo.getPassphraseId() == null;
-                long size = withoutEncryption ? vinfo.getSize() : vinfo.getSize() + 2097152;
+                long size = getStorPoolVolumeSize(vinfo, vinfo.getSize());
                 if (snapshotSize != null && size < snapshotSize) {
                     StorPoolUtil.spLog(String.format("provided size is too small for snapshot. Provided %d, snapshot %d. Using snapshot size", size, snapshotSize));
-                    size = withoutEncryption ? snapshotSize : snapshotSize + 2097152;
+                    size = getStorPoolVolumeSize(vinfo, snapshotSize);
                 }
                 StorPoolUtil.spLog(String.format("volume size is: %d", size));
                 Long vmId = vinfo.getInstanceId();
@@ -902,19 +932,21 @@ public class StorPoolPrimaryDataStoreDriver implements PrimaryDataStoreDriver {
                 }
 
                 if (resp.getError() == null) {
-                    updateStoragePool(dstData.getDataStore().getId(), vinfo.getSize());
                     updateVolumePoolType(vinfo);
 
-                    if (withoutEncryption) {
+                    if (vinfo.getPassphraseId() == null) {
                         VolumeObjectTO to = updateVolumeObjectTO(vinfo, resp);
                         answer = new CopyCmdAnswer(to);
                     } else {
                         VolumeObjectTO volume = updateVolumeObjectTO(vinfo, resp);
                         String snapshotPath = StorPoolUtil.devPath(parentName.split("~")[1]);
-                        answer = createEncryptedVolume(dstData.getDataStore(), dstData, vinfo, size, volume, snapshotPath, false);
+                        answer = createEncryptedVolume(dstData, vinfo, volume, snapshotPath, false, conn);
                         if (answer.getResult()) {
                              answer = new CopyCmdAnswer(((StorPoolSetVolumeEncryptionAnswer) answer).getVolume());
                         }
+                    }
+                    if (answer.getResult()) {
+                        updateStoragePool(dstData.getDataStore().getId(), vinfo.getSize());
                     }
                 } else {
                     err = String.format("Could not create Storpool volume %s. Error: %s", name, resp.getError());

@@ -1,8 +1,6 @@
 package org.apache.cloudstack.storage.helper;
 
-import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
-import java.lang.reflect.Proxy;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -53,12 +51,16 @@ import com.cloud.storage.dao.VolumeDao;
 import com.cloud.user.Account;
 import com.cloud.user.AccountManager;
 import com.cloud.utils.component.ComponentContext;
+import com.cloud.utils.component.ManagerBase;
 import com.cloud.utils.component.PluggableService;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
-public class StorPoolReplaceCommandsHelper implements PluggableService {
+public class StorPoolReplaceCommandsHelper extends ManagerBase implements PluggableService {
     private static final Logger log = Logger.getLogger(StorPoolReplaceCommandsHelper.class);
+
+    private static final List<Class<?>> REPLACED_COMMANDS = Arrays.asList(ResizeVolumeCmd.class, ResizeVolumeCmdByAdmin.class,
+            ScaleVMCmd.class, ScaleVMCmdByAdmin.class, ChangeOfferingForVolumeCmd.class, DeleteTemplateCmd.class);
 
     private static StorPoolReplaceCommandsUtil replaceCommandsUtil;
     private ApiServer apiServer;
@@ -72,75 +74,48 @@ public class StorPoolReplaceCommandsHelper implements PluggableService {
 
     public void init() {
         this.apiServer = ComponentContext.getComponent(ApiServer.class);
-        try {
-            // addCommandsBeforeRealInit();
-            changeAnnotations();
-        } catch (Exception e) {
-            log.info(e.getMessage());
-        }
     }
 
-    public void addCommandsBeforeRealInit() {
-        try {
-            Class<ApiServer> cls = ApiServer.class;
-            Field field = cls.getDeclaredField("s_apiNameCmdClassMap");
-            field.setAccessible(true);
-            Object value = field.get(cls);
-            Map<String, List<Class<?>>> commandsMap = (Map<String, List<Class<?>>>) value;
-            List<Class<?>> set = new ArrayList<>(Arrays.asList(
+    // ApiServer registers the API commands in its start(). The core module is started
+    // before the StorPool module, so the commands are already registered here
+    @Override
+    public boolean start() {
+        removeReplacedCommands();
+        return true;
+    }
 
-                    StorPoolResizeVolumeCmd.class, StorPoolResizeVolumeCmdByAdmin.class, StorPoolScaleVMCmd.class,
-                    StorPoolScaleVMCmdByAdmin.class));
-            for (Class<?> clazz : set) {
-                final APICommand at = clazz.getAnnotation(APICommand.class);
-                String name = at.name();
-                List<Class<?>> cmdList = commandsMap.get(name);
-                if (cmdList == null) {
-                    cmdList = new ArrayList<>();
-                    commandsMap.put(name, cmdList);
-                }
-                cmdList.add(clazz);
-            }
+    // Removing the real CloudStack commands, so only StorPool's commands are
+    // registered for these APIs
+    @SuppressWarnings("unchecked")
+    private void removeReplacedCommands() {
+        Map<String, List<Class<?>>> commandsMap;
+        try {
+            Field field = ApiServer.class.getDeclaredField("s_apiNameCmdClassMap");
+            field.setAccessible(true);
+            commandsMap = (Map<String, List<Class<?>>>) field.get(null);
         } catch (NoSuchFieldException | IllegalAccessException e) {
-            log.error(e.getMessage());
+            log.error("Could not replace CloudStack's commands with StorPool's commands", e);
+            return;
         }
-    }
-
-    // Removing real CloudStack commands' names with "". This will help to
-    // initialize and work with StorPool's commands
-    private static void changeAnnotations() {
-        List<Annotation> annotations = new ArrayList<>(
-                Arrays.asList(ResizeVolumeCmd.class.getAnnotation(APICommand.class),
-                        ResizeVolumeCmdByAdmin.class.getAnnotation(APICommand.class),
-                        ScaleVMCmd.class.getAnnotation(APICommand.class),
-                        ScaleVMCmdByAdmin.class.getAnnotation(APICommand.class),
-                        ChangeOfferingForVolumeCmd.class.getAnnotation(APICommand.class),
-                        DeleteTemplateCmd.class.getAnnotation(APICommand.class)));
-        changeAnnotationValue(annotations, "name", "");
-    }
-
-    public static void changeAnnotationValue(List<Annotation> annotations, String key, Object newValue) {
-        for (Annotation annotation : annotations) {
-            Object handler = Proxy.getInvocationHandler(annotation);
-            Field field;
-            try {
-                field = handler.getClass().getDeclaredField("memberValues");
-            } catch (NoSuchFieldException | SecurityException e) {
-                throw new IllegalStateException(e);
+        List<Class<?>> storPoolCommands = getCommands();
+        for (Class<?> replacedCmd : REPLACED_COMMANDS) {
+            APICommand replacedAnnotation = replacedCmd.getAnnotation(APICommand.class);
+            List<Class<?>> cmdList = commandsMap.get(replacedAnnotation.name());
+            if (cmdList == null) {
+                log.error(String.format("Could not find API [%s] to replace it with StorPool's command", replacedAnnotation.name()));
+                continue;
             }
-            field.setAccessible(true);
-            Map<String, Object> memberValues;
-            try {
-                memberValues = (Map<String, Object>) field.get(handler);
-            } catch (IllegalArgumentException | IllegalAccessException e) {
-                throw new IllegalStateException(e);
+            boolean hasStorPoolCmd = cmdList.stream().anyMatch(cmd -> storPoolCommands.contains(cmd)
+                    && cmd.getAnnotation(APICommand.class).responseView() == replacedAnnotation.responseView());
+            if (!hasStorPoolCmd) {
+                log.error(String.format("StorPool's command for API [%s] is not registered, keeping CloudStack's command [%s]",
+                        replacedAnnotation.name(), replacedCmd.getSimpleName()));
+                continue;
             }
-            Object oldValue = memberValues.get(key);
-            if (oldValue == null || oldValue.getClass() != newValue.getClass()) {
-                throw new IllegalArgumentException();
+            if (cmdList.remove(replacedCmd)) {
+                StorPoolUtil.spLog("CloudStack command [%s] for API [%s] was replaced with StorPool's command",
+                        replacedCmd.getSimpleName(), replacedAnnotation.name());
             }
-            memberValues.put(key, newValue);
-            StorPoolUtil.spLog("CloudStack command old value=%s, replaced with new value=%s", oldValue, newValue);
         }
     }
 
